@@ -42,7 +42,10 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
     private var uiUpdatePending = false
     private var lastSignalQualityLabel = ""
     private var lastSignalQualityPublishTimestamp = 0.0
+    private var lastSoundedPosture: PostureKind = .neutral
+    private var lastPostureSoundTimestamp: TimeInterval = -.infinity
     private let recordingDuration: TimeInterval = 1.35
+    private let postureSoundCooldown: TimeInterval = 0.9
 
     override init() {
         motionDeliveryQueue.name = "dev.airpods-posture.lab.app.motion-delivery"
@@ -285,6 +288,10 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
             return
         }
 
+        if event == nil {
+            playPostureSoundIfNeeded(sample: sample, posture: posture)
+        }
+
         publishSample(sample, event: event, posture: posture)
     }
 
@@ -298,6 +305,33 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
         uiUpdatePending = false
         lastSignalQualityLabel = ""
         lastSignalQualityPublishTimestamp = 0
+        lastSoundedPosture = .neutral
+        lastPostureSoundTimestamp = -.infinity
+    }
+
+    private func playPostureSoundIfNeeded(sample: PostureSample, posture: PostureSnapshot) {
+        if posture.kind == .neutral {
+            lastSoundedPosture = .neutral
+            return
+        }
+
+        guard posture.kind != lastSoundedPosture,
+              posture.timestamp - lastPostureSoundTimestamp >= postureSoundCooldown else {
+            return
+        }
+
+        lastSoundedPosture = posture.kind
+        lastPostureSoundTimestamp = posture.timestamp
+        sounds.play(
+            .posture(
+                PostureSoundCue(
+                    kind: posture.kind,
+                    offsetDegrees: posture.offsetDegrees,
+                    angularSpeed: sample.angularSpeed,
+                    accelerationMagnitude: sample.accelerationMagnitude
+                )
+            )
+        )
     }
 
     private func publishCalibrationProgress(_ progress: Double, timestamp: TimeInterval) {

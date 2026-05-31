@@ -8,6 +8,26 @@ enum SoundCue {
     case disconnected
     case error
     case gesture(GestureKind)
+    case posture(PostureSoundCue)
+}
+
+struct PostureSoundCue: Sendable {
+    var kind: PostureKind
+    var offsetDegrees: Double
+    var angularSpeed: Double
+    var accelerationMagnitude: Double
+
+    init(
+        kind: PostureKind,
+        offsetDegrees: Double,
+        angularSpeed: Double,
+        accelerationMagnitude: Double
+    ) {
+        self.kind = kind
+        self.offsetDegrees = offsetDegrees
+        self.angularSpeed = angularSpeed
+        self.accelerationMagnitude = accelerationMagnitude
+    }
 }
 
 final class SoundFeedback: @unchecked Sendable {
@@ -77,11 +97,13 @@ final class SoundFeedback: @unchecked Sendable {
                 let progress = Double(localFrame) / Double(max(1, frameCount - 1))
                 let frequency = segment.startFrequency
                     + (segment.endFrequency - segment.startFrequency) * progress
+                let pan = segment.startPan + (segment.endPan - segment.startPan) * progress
+                let gain = segment.startGain + (segment.endGain - segment.startGain) * progress
                 let phase = 2 * Double.pi * frequency * Double(localFrame) / sampleRate
                 let envelope = envelope(progress)
-                let sample = sin(phase) * segment.gain * envelope
-                let leftGain = sqrt((1 - segment.pan) * 0.5)
-                let rightGain = sqrt((1 + segment.pan) * 0.5)
+                let sample = sin(phase) * gain * envelope
+                let leftGain = sqrt((1 - pan) * 0.5)
+                let rightGain = sqrt((1 + pan) * 0.5)
                 let frame = frameOffset + localFrame
 
                 channels[0][frame] += Float(sample * leftGain)
@@ -111,8 +133,46 @@ private struct ToneSegment {
     var startFrequency: Double
     var endFrequency: Double
     var duration: TimeInterval
-    var pan: Double
-    var gain: Double
+    var startPan: Double
+    var endPan: Double
+    var startGain: Double
+    var endGain: Double
+
+    init(
+        startFrequency: Double,
+        endFrequency: Double,
+        duration: TimeInterval,
+        pan: Double,
+        gain: Double
+    ) {
+        self.init(
+            startFrequency: startFrequency,
+            endFrequency: endFrequency,
+            duration: duration,
+            startPan: pan,
+            endPan: pan,
+            startGain: gain,
+            endGain: gain
+        )
+    }
+
+    init(
+        startFrequency: Double,
+        endFrequency: Double,
+        duration: TimeInterval,
+        startPan: Double,
+        endPan: Double,
+        startGain: Double,
+        endGain: Double
+    ) {
+        self.startFrequency = startFrequency
+        self.endFrequency = endFrequency
+        self.duration = duration
+        self.startPan = clamp(startPan, lower: -1, upper: 1)
+        self.endPan = clamp(endPan, lower: -1, upper: 1)
+        self.startGain = max(0, startGain)
+        self.endGain = max(0, endGain)
+    }
 }
 
 private extension SoundCue {
@@ -158,6 +218,87 @@ private extension SoundCue {
             [
                 ToneSegment(startFrequency: 620, endFrequency: 700, duration: 0.10, pan: 0.92, gain: 0.15)
             ]
+        case .posture(let cue):
+            cue.segments
         }
     }
+}
+
+private extension PostureSoundCue {
+    var segments: [ToneSegment] {
+        guard kind != .neutral else {
+            return []
+        }
+
+        let intensity = clamp(
+            offsetDegrees / 32
+                + angularSpeed / 420
+                + accelerationMagnitude / 0.8,
+            lower: 0.2,
+            upper: 1
+        )
+        let duration = 0.075 + intensity * 0.055
+        let gain = 0.075 + intensity * 0.075
+
+        switch kind {
+        case .turnedLeft:
+            return [sideSegment(direction: -1, baseFrequency: 470, duration: duration, gain: gain, intensity: intensity)]
+        case .turnedRight:
+            return [sideSegment(direction: 1, baseFrequency: 470, duration: duration, gain: gain, intensity: intensity)]
+        case .tiltedLeft:
+            return [sideSegment(direction: -1, baseFrequency: 640, duration: duration, gain: gain, intensity: intensity)]
+        case .tiltedRight:
+            return [sideSegment(direction: 1, baseFrequency: 640, duration: duration, gain: gain, intensity: intensity)]
+        case .headDown:
+            return [
+                ToneSegment(
+                    startFrequency: 420,
+                    endFrequency: 310 - intensity * 40,
+                    duration: duration,
+                    startPan: -0.12,
+                    endPan: 0.12,
+                    startGain: gain * 0.85,
+                    endGain: gain
+                )
+            ]
+        case .headUp:
+            return [
+                ToneSegment(
+                    startFrequency: 560,
+                    endFrequency: 720 + intensity * 90,
+                    duration: duration,
+                    startPan: 0.10,
+                    endPan: -0.10,
+                    startGain: gain * 0.85,
+                    endGain: gain
+                )
+            ]
+        case .neutral:
+            return []
+        }
+    }
+
+    private func sideSegment(
+        direction: Double,
+        baseFrequency: Double,
+        duration: TimeInterval,
+        gain: Double,
+        intensity: Double
+    ) -> ToneSegment {
+        let finalPan = direction * clamp(0.40 + intensity * 0.58, lower: 0.40, upper: 0.98)
+        let startPan = finalPan * 0.35
+        return ToneSegment(
+            startFrequency: baseFrequency,
+            endFrequency: baseFrequency + 80 + intensity * 90,
+            duration: duration,
+            startPan: startPan,
+            endPan: finalPan,
+            startGain: gain * 0.78,
+            endGain: gain
+        )
+    }
+}
+
+private func clamp(_ value: Double, lower: Double, upper: Double) -> Double {
+    min(max(value, lower), upper)
 }
