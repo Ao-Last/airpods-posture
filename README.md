@@ -1,109 +1,159 @@
 # AirPods Posture
 
-AirPods Posture is a focused package for one question:
+[中文说明](README.zh-CN.md)
 
-> Can AirPods headphone motion become a reliable, pleasant body-input layer?
+AirPods Posture turns AirPods headphone motion into a reusable posture and gesture stream.
 
-This repo intentionally does not contain downstream agent integrations or productivity apps. It owns two surfaces:
+It is not a downstream productivity app. The repo owns two focused surfaces:
 
-1. `AirPodsPosture`: a Swift package/library that turns head motion into posture snapshots and gesture events.
-2. `AirPods Posture Lab`: a standard macOS SwiftUI app for debugging, calibration, and real AirPods UX testing.
+1. `AirPodsPosture`: a Swift package that turns head motion into posture snapshots, gesture events, and signal-quality state.
+2. `AirPods Posture Lab`: a macOS SwiftUI debug app for real-device testing, calibration, and interaction tuning.
 
-The library pipeline is:
+The long-term idea is simple: downstream apps should consume posture and gesture streams instead of copying raw CoreMotion handling.
 
 ```text
-AirPods motion -> neutral calibration -> signal guard -> cleaned motion stream -> posture stream + gesture events -> feedback
+AirPods motion
+  -> neutral calibration
+  -> signal guard
+  -> cleaned motion sample
+  -> posture stream + gesture events
+  -> downstream app or debug feedback
 ```
 
-Downstream apps should consume the posture/gesture stream from this package. New app ideas, such as low-head reminders, agent yes/no confirmation, or voice-input control, should live in separate repos.
+## Status
 
-## Library API
+This project is early and experimental, but the core boundary is intentional:
 
-Add the package and depend on the `AirPodsPosture` product. The module exposes the reusable recognition pieces without depending on CoreMotion directly:
+- The library has no dependency on `CoreMotion`.
+- The debug app converts `CMDeviceMotion` into library-owned `HeadMotionFrame` values.
+- Gesture recognition uses motion segmentation plus DTW-style template matching.
+- Posture detection is a sustained-state detector over cleaned motion samples.
+
+Hardware support depends on Apple's `CMHeadphoneMotionManager` and the AirPods model / OS support available on the user's device.
+
+## Package
+
+Add the Swift package:
+
+```swift
+.package(url: "https://github.com/Ao-Last/airpods-posture.git", branch: "main")
+```
+
+Then depend on the product:
+
+```swift
+.product(name: "AirPodsPosture", package: "airpods-posture")
+```
+
+Import the module:
+
+```swift
+import AirPodsPosture
+```
+
+The main public API is `AirPodsPosturePipeline`.
+
+```swift
+let pipeline = AirPodsPosturePipeline()
+
+let output = pipeline.observe(
+    HeadMotionFrame(
+        timestamp: timestamp,
+        quaternion: headsetQuaternion,
+        rotationRateDegreesPerSecond: rotationRate,
+        userAcceleration: acceleration
+    )
+)
+
+switch output {
+case .accepted(let sample, let posture, let gesture, let signalQuality):
+    print(sample.yaw, sample.pitch, sample.roll)
+    print(posture.kind, posture.confidence)
+    print(gesture?.kind as Any)
+    print(signalQuality.state)
+
+case .calibrating(let progress, _):
+    print("calibrating", progress)
+
+case .calibrated:
+    print("ready")
+
+case .reset(_, let signalQuality), .dropped(_, let signalQuality):
+    print(signalQuality.debugSummary)
+}
+```
+
+Core types:
 
 - `HeadMotionFrame`: timestamp, headset quaternion, rotation rate, and user acceleration.
 - `AirPodsPosturePipeline`: neutral calibration, signal guarding, posture detection, and gesture recognition.
+- `PostureSample`: cleaned yaw / pitch / roll plus angular velocity and acceleration.
 - `PostureSnapshot`: sustained posture stream.
 - `GestureEvent`: discrete gesture event stream.
-- `MotionSignalQuality`: gap/spike/recovery state for Bluetooth resilience and UI diagnostics.
+- `MotionSignalQuality`: stable / recovering / gap / spike state for Bluetooth resilience and diagnostics.
 
-The macOS debug app converts `CMDeviceMotion` into `HeadMotionFrame`, then feeds the same `AirPodsPosturePipeline` a downstream app would use.
+## Postures
 
-## Current Postures
-
-The app now treats sustained posture as the primary product surface. Gestures are still useful, but they sit on top of a cleaner posture stream.
+Current postures:
 
 - `neutral`: calibrated resting head position.
-- `head_down`: sustained downward head angle, useful for "phone neck" / low-head detection.
+- `head_down`: sustained downward head angle, useful for low-head or "phone neck" detection.
 - `head_up`: sustained upward head angle.
 - `turned_left` / `turned_right`: sustained yaw away from center.
 - `tilted_left` / `tilted_right`: sustained side tilt, ear toward shoulder.
 
 Default axis assumptions are based on current real-device observations:
 
-- yaw: left / right turning. Current default mapping treats positive yaw as left turn and negative yaw as right turn.
+- yaw: left / right turning. Positive yaw maps to left turn, negative yaw maps to right turn.
 - roll: up / down nodding, also the default vertical posture axis.
 - pitch: side tilt.
 
-These assumptions are intentionally visible in the UI and should be learned from calibration traces over time rather than treated as universal hardware truth.
+These signs are defaults, not universal truth. AirPods fit, ear shape, and OS attitude conventions can vary, so downstream apps should keep calibration and user testing in the loop.
 
-## Current Gestures
+## Gestures
+
+Current gestures:
 
 - `nod`: roll stroke, intended for yes / confirm.
 - `shake`: yaw stroke, intended for no / cancel.
 - `tilt_left`: held pitch to the left, intended for previous / left.
 - `tilt_right`: held pitch to the right, intended for next / right.
 
-The app shows live yaw / pitch / roll, motion sample rate, signal quality, sustained posture, recognized gesture, confidence, amplitude, and recognizer debug notes.
+Dynamic gestures use:
 
-Gesture recognition now uses a more standard motion-recognition shape:
+1. relative attitude, rotation rate, and user acceleration;
+2. angular-velocity motion segmentation, so the recognizer waits for a whole nod or shake;
+3. DTW-style template matching;
+4. physical evidence such as amplitude, dominant axis, reversal count, return-to-neutral, angular speed, and acceleration;
+5. optional personal templates learned from the Lab recording UI.
 
-1. Carry all available CoreMotion signals into the cleaned sample: relative attitude, rotation rate, and user acceleration.
-2. Segment dynamic head motion with angular velocity, so the recognizer waits for a whole nod / shake instead of firing on the first half of the movement.
-3. Classify nod / shake with DTW-style template matching plus physical evidence: amplitude, dominant axis, reversal count, return-to-neutral, angular speed, and acceleration.
-4. Let user gesture recordings teach personal templates and thresholds, because AirPods fit and head motion style vary between people.
+Gestures are not derived from posture labels. Posture and gesture recognition both consume the same cleaned motion stream. Posture can later be used as context or gating for downstream interaction.
 
-## Debug UI
+## Debug App
 
-`AirPods Posture Lab` is the first-party debugging UI. It is intentionally not the product layer.
+`AirPods Posture Lab` is the first-party debugging UI.
 
-- Shows live yaw / pitch / roll, sample rate, signal quality, posture, gesture, confidence, and recognizer notes.
-- Plays matched audio feedback so physical movement has an immediate confirmation loop.
-- Records calibration traces for nod, shake, left tilt, and right tilt.
-- Dogfoods the package API instead of keeping recognition logic inside the UI.
+It shows:
 
-## UX Principle
+- live yaw / pitch / roll;
+- sample rate and signal quality;
+- current posture, confidence, offset, and held duration;
+- latest gesture, confidence, amplitude, and debug notes;
+- calibration controls for nod, shake, left tilt, and right tilt.
 
-The audio cue is part of the input surface, not decoration.
+It also plays matched audio feedback so movement has an immediate confirmation loop. The audio cue is part of the input surface, not decoration.
 
-- Armed / calibrated: short rising tones.
-- Nod: centered, upward confirmation cue.
-- Shake: short left-right descending rejection cue.
-- Tilt left: left-panned cue.
-- Tilt right: right-panned cue.
-
-That makes the loop feel physical: move head, hear matched confirmation, trust the input.
-
-## Run
-
-For real AirPods motion, use the standard Xcode macOS debug app target:
+Run the real AirPods debug app through Xcode:
 
 1. Open `AirPodsPostureLab.xcodeproj`.
 2. Select the `AirPodsPostureLab` scheme.
 3. Run it from Xcode.
 
-This lets Xcode handle the app bundle, Info.plist, signing, privacy prompts, and app lifecycle normally. On launch, hold your head naturally for the first half second. The app averages the initial samples into a neutral baseline.
+Using Xcode lets the normal macOS app bundle, Info.plist, signing, privacy prompt, and lifecycle paths handle `CMHeadphoneMotionManager` correctly.
 
-After neutral calibration, use the calibration buttons to record your own nod, shake, left tilt, and right tilt traces. Each recording teaches the recognizer which axis and threshold best match your AirPods fit and head movement.
-Nod and shake recordings also become personal motion templates for DTW matching.
+## CLI Simulation
 
-The command-line executable is only for recognizer simulation and smoke tests. It does not request real AirPods motion permission.
-
-```bash
-swift run airpods-posture-lab --simulate
-```
-
-To run without AirPods:
+The SwiftPM executable is only a recognizer simulation and smoke-test harness. It does not request real AirPods motion permission.
 
 ```bash
 swift run airpods-posture-lab --simulate
@@ -113,26 +163,40 @@ swift run airpods-posture-lab --simulate tilt-left
 swift run airpods-posture-lab --simulate tilt-right
 ```
 
-## Test
+## Tests
 
 ```bash
 swift test
 ```
 
-The tests cover the public pipeline, sustained posture detection, nod, shake, whole-gesture segmentation, held left tilt, small-motion rejection, quaternion baseline conversion, and motion vector axis mapping.
+The tests cover:
 
-## Implementation Notes
+- public pipeline calibration and stream output;
+- signal-gap reset behavior;
+- sustained posture detection;
+- nod, shake, and held tilt recognition;
+- whole-gesture segmentation;
+- small-motion rejection;
+- quaternion baseline conversion;
+- motion-vector axis mapping.
 
-- `Sources/AirPodsPosture` contains the reusable package API and can be tuned without a live device.
-- `AirPodsPostureLab.xcodeproj` contains the standard macOS SwiftUI app that uses `CMHeadphoneMotionManager`.
-- The SwiftPM executable is a simulation harness only.
-- The signal guard drops obvious timestamp gaps and motion spikes before data reaches posture or gesture recognition. Bluetooth can still be imperfect, but broken segments should not become fake postures or gestures.
-- Posture detection is a sustained-state detector. Gesture detection is not derived from posture labels; it uses the same cleaned motion stream and can use posture later as context or gating.
-- Direction signs are defaults, not truth. Real AirPods fit, ear shape, and OS attitude conventions can vary enough that posture and gesture mappings should remain calibratable.
+## Project Layout
 
-## What To Tune Next
+```text
+Sources/AirPodsPosture/        Reusable Swift package
+AirPodsPostureLab/             macOS SwiftUI debug app
+Sources/AirPodsPostureLab/     CLI simulation harness
+Tests/AirPodsPostureTests/     Package tests
+```
 
-1. Record real AirPods traces for neutral work, low-head posture, reading posture, deliberate nod, deliberate shake, and side tilts.
-2. Tune posture thresholds using false-positive rate first, then comfort.
-3. Add explicit posture calibration for head down / head up in addition to gesture calibration.
-4. Add an "armed window" state so downstream gesture events only count while the posture layer is listening.
+## Roadmap
+
+- Record real AirPods traces for neutral work, low-head posture, reading posture, deliberate nod, deliberate shake, and side tilts.
+- Add explicit posture calibration for head down / head up and left / right turn.
+- Add trace export so threshold and template changes can be evaluated offline.
+- Tune false-positive rate before adding more downstream interactions.
+- Add an armed/listening state for apps that only want gestures inside an interaction window.
+
+## License
+
+MIT
