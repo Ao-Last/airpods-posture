@@ -66,10 +66,11 @@ let output = pipeline.observe(
 )
 
 switch output {
-case .accepted(let sample, let posture, let gesture, let signalQuality):
+case .accepted(let sample, let posture, let gesture, let episodeEvents, let signalQuality):
     print(sample.yaw, sample.pitch, sample.roll)
     print(posture.kind, posture.confidence)
     print(gesture?.kind as Any)
+    print(episodeEvents.map(\.phase))
     print(signalQuality.state)
 
 case .calibrating(let progress, _):
@@ -89,6 +90,7 @@ case .reset(_, let signalQuality), .dropped(_, let signalQuality):
 - `AirPodsPosturePipeline`：中立姿态校准、信号保护、姿态检测和手势识别。
 - `PostureSample`：清洗后的 yaw / pitch / roll，以及角速度和加速度。
 - `PostureSnapshot`：持续姿态流。
+- `PostureEpisodeEvent`：从 posture 时间状态派生出来的 entered / sustained / recovered / exited 事件流。
 - `GestureEvent`：离散手势事件流。
 - `MotionSignalQuality`：stable / recovering / gap / spike，用于蓝牙信号恢复和 UI 诊断。
 
@@ -113,6 +115,17 @@ case .reset(_, let signalQuality), .dropped(_, let signalQuality):
 - pitch：侧倾。
 
 这些符号只是默认值，不是永恒真理。AirPods 的佩戴方式、耳型、系统姿态约定都可能带来差异，所以后续应用应该保留校准和用户测试。
+
+## Posture Episodes
+
+`PostureEpisodeDetector` 会把稳定姿态快照转换成可复用的时间事件：
+
+- `entered`：进入某个非 neutral 姿态。
+- `sustained`：该姿态已经持续超过 `minimumSustainedDuration`。
+- `recovered`：用户已经回到 neutral 并保持了 `recoveryDuration`。
+- `exited`：当前姿态被另一个非 neutral 姿态替换。
+
+这一层适合低实时性应用，比如低头提醒。Core package 只报告 episode 语义；下游应用仍然负责通知权限、cooldown、统计、设置和产品文案。如果下游想自己做算法，也可以完全忽略这一层，直接消费 `PostureSnapshot` 或 `PostureSample`。
 
 ## Gestures
 

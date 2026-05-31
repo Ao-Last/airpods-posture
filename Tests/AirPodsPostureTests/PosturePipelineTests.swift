@@ -21,7 +21,7 @@ final class PosturePipelineTests: XCTestCase {
         for index in 0..<18 {
             let timestamp = 0.08 + Double(index) * 0.04
             let moved = baseline * HeadsetQuaternion.fromEulerDegrees(yaw: 0, pitch: 0, roll: -20)
-            if case .accepted(let sample, let posture, _, let quality) = pipeline.observe(
+            if case .accepted(let sample, let posture, _, _, let quality) = pipeline.observe(
                 frame(timestamp: timestamp, quaternion: moved)
             ) {
                 XCTAssertEqual(sample.roll, -20, accuracy: 0.1)
@@ -49,6 +49,49 @@ final class PosturePipelineTests: XCTestCase {
         }
 
         XCTAssertEqual(quality.state, .gap)
+    }
+
+    func testPipelineEmitsPostureEpisodeEvents() {
+        let pipeline = AirPodsPosturePipeline(
+            configuration: AirPodsPosturePipelineConfiguration(
+                requiredCalibrationSamples: 1,
+                postureDetector: PostureDetectorConfiguration(
+                    enterHoldDuration: 0.08,
+                    neutralHoldDuration: 0.08
+                ),
+                postureEpisodeDetector: PostureEpisodeDetectorConfiguration(
+                    minimumSustainedDuration: 0.08,
+                    recoveryDuration: 0.08,
+                    minimumConfidence: 0.65
+                )
+            )
+        )
+        let baseline = HeadsetQuaternion.fromEulerDegrees(yaw: 0, pitch: 0, roll: 0)
+
+        _ = pipeline.observe(frame(timestamp: 0, quaternion: baseline))
+
+        var episodeEvents: [PostureEpisodeEvent] = []
+        for index in 0..<20 {
+            let timestamp = 0.04 + Double(index) * 0.04
+            let moved = baseline * HeadsetQuaternion.fromEulerDegrees(yaw: 0, pitch: 0, roll: -22)
+            if case .accepted(_, _, _, let events, _) = pipeline.observe(
+                frame(timestamp: timestamp, quaternion: moved)
+            ) {
+                episodeEvents.append(contentsOf: events)
+            }
+        }
+
+        for index in 0..<8 {
+            let timestamp = 0.88 + Double(index) * 0.04
+            if case .accepted(_, _, _, let events, _) = pipeline.observe(
+                frame(timestamp: timestamp, quaternion: baseline)
+            ) {
+                episodeEvents.append(contentsOf: events)
+            }
+        }
+
+        XCTAssertEqual(episodeEvents.map(\.phase), [.entered, .sustained, .recovered])
+        XCTAssertEqual(episodeEvents.map(\.posture), [.headDown, .headDown, .headDown])
     }
 
     func testPipelineLearnsGestureConfiguration() {

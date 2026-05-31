@@ -66,10 +66,11 @@ let output = pipeline.observe(
 )
 
 switch output {
-case .accepted(let sample, let posture, let gesture, let signalQuality):
+case .accepted(let sample, let posture, let gesture, let episodeEvents, let signalQuality):
     print(sample.yaw, sample.pitch, sample.roll)
     print(posture.kind, posture.confidence)
     print(gesture?.kind as Any)
+    print(episodeEvents.map(\.phase))
     print(signalQuality.state)
 
 case .calibrating(let progress, _):
@@ -89,6 +90,7 @@ Core types:
 - `AirPodsPosturePipeline`: neutral calibration, signal guarding, posture detection, and gesture recognition.
 - `PostureSample`: cleaned yaw / pitch / roll plus angular velocity and acceleration.
 - `PostureSnapshot`: sustained posture stream.
+- `PostureEpisodeEvent`: entered / sustained / recovered / exited events derived from posture over time.
 - `GestureEvent`: discrete gesture event stream.
 - `MotionSignalQuality`: stable / recovering / gap / spike state for Bluetooth resilience and diagnostics.
 
@@ -113,6 +115,17 @@ Default axis assumptions are based on current real-device observations:
 - pitch: side tilt.
 
 These signs are defaults, not universal truth. AirPods fit, ear shape, and OS attitude conventions can vary, so downstream apps should keep calibration and user testing in the loop.
+
+## Posture Episodes
+
+`PostureEpisodeDetector` turns stable posture snapshots into reusable time events:
+
+- `entered`: a non-neutral posture has started.
+- `sustained`: the posture has lasted beyond `minimumSustainedDuration`.
+- `recovered`: the user has returned to neutral for `recoveryDuration`.
+- `exited`: another non-neutral posture replaced the current one.
+
+This layer is useful for lower-real-time apps such as low-head reminders. The core package reports the episode semantics, while downstream apps still own notification permissions, cooldowns, statistics, settings, and product copy. Apps that want custom algorithms can ignore this layer and consume `PostureSnapshot` or `PostureSample` directly.
 
 ## Gestures
 

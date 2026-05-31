@@ -20,6 +20,9 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
     @Published var postureOffset = 0.0
     @Published var postureHeldDurationLabel = "0.0s"
     @Published var postureDebugSummary = "neutral"
+    @Published var episodePhaseLabel = "episode: none"
+    @Published var episodeDurationLabel = "0.0s"
+    @Published var episodeDebugSummary = "episode: waiting"
     @Published var recordingGesture: GestureKind?
     @Published var recordingProgress = 0.0
     @Published var calibrationProfileSummary = "nod roll | shake yaw | tilt pitch"
@@ -120,6 +123,9 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
         postureOffset = 0
         postureHeldDurationLabel = "0.0s"
         postureDebugSummary = "neutral"
+        episodePhaseLabel = "episode: none"
+        episodeDurationLabel = "0.0s"
+        episodeDebugSummary = "episode: waiting"
         recordingGesture = nil
         recordingProgress = 0
         updateStatus("Recalibrating. Hold your head naturally.", color: .secondary)
@@ -175,6 +181,9 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
             self.postureOffset = 0
             self.postureHeldDurationLabel = "0.0s"
             self.postureDebugSummary = "neutral"
+            self.episodePhaseLabel = "episode: none"
+            self.episodeDurationLabel = "0.0s"
+            self.episodeDebugSummary = "episode: waiting"
             self.recordingGesture = nil
             self.recordingProgress = 0
             self.updateStatus("AirPods motion disconnected.", color: .orange)
@@ -267,9 +276,9 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
                 self.sounds.play(.calibrated)
             }
 
-        case .accepted(let sample, let posture, let event, let quality):
+        case .accepted(let sample, let posture, let event, let episodeEvents, let quality):
             publishSignalQuality(quality, timestamp: sample.timestamp)
-            processAcceptedSample(sample, posture: posture, event: event)
+            processAcceptedSample(sample, posture: posture, event: event, episodeEvents: episodeEvents)
         case .reset(let sample, let quality):
             publishSignalQuality(quality, timestamp: sample.timestamp)
             cancelRecordingForSignalIfNeeded(quality.debugSummary)
@@ -283,7 +292,8 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
     private func processAcceptedSample(
         _ sample: PostureSample,
         posture: PostureSnapshot,
-        event: GestureEvent?
+        event: GestureEvent?,
+        episodeEvents: [PostureEpisodeEvent]
     ) {
         if consumeRecordingSample(sample) {
             publishSample(sample, event: nil, posture: posture)
@@ -294,7 +304,7 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
             playPostureSoundIfNeeded(sample: sample)
         }
 
-        publishSample(sample, event: event, posture: posture)
+        publishSample(sample, event: event, posture: posture, episodeEvents: episodeEvents)
     }
 
     private func resetPipeline() {
@@ -420,10 +430,11 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
     private func publishSample(
         _ sample: PostureSample,
         event: GestureEvent?,
-        posture: PostureSnapshot? = nil
+        posture: PostureSnapshot? = nil,
+        episodeEvents: [PostureEpisodeEvent] = []
     ) {
         let sampleRateLabel = updateSampleRate(timestamp: sample.timestamp)
-        let shouldPublishPose = event != nil || shouldPublishUI(timestamp: sample.timestamp)
+        let shouldPublishPose = event != nil || !episodeEvents.isEmpty || shouldPublishUI(timestamp: sample.timestamp)
 
         guard shouldPublishPose || sampleRateLabel != nil else {
             return
@@ -451,6 +462,12 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
                 self.postureOffset = posture.offsetDegrees
                 self.postureHeldDurationLabel = String(format: "%.1fs", posture.heldDuration)
                 self.postureDebugSummary = posture.debugSummary
+            }
+
+            if let episode = episodeEvents.last {
+                self.episodePhaseLabel = "\(episode.posture.label) \(episode.phase.rawValue)"
+                self.episodeDurationLabel = String(format: "%.1fs", episode.duration)
+                self.episodeDebugSummary = episode.debugSummary
             }
 
             if let event {

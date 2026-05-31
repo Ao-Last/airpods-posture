@@ -195,9 +195,24 @@ private struct PostureStatusPanel: View {
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Text(model.episodePhaseLabel)
+                Spacer()
+                Text(model.episodeDurationLabel)
+            }
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.secondary)
+
+            Text(model.episodeDebugSummary)
+                .font(.system(size: 12, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: 152, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -267,7 +282,7 @@ private struct PostureMonitorTile: View {
         .foregroundStyle(isActive ? .white : .primary)
         .padding(12)
         .frame(width: 132)
-        .frame(minHeight: 108, alignment: .topLeading)
+        .frame(minHeight: 152, alignment: .topLeading)
         .background(isActive ? activeColor : Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)

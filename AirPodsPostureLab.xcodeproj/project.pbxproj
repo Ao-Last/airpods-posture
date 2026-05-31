@@ -20,6 +20,7 @@
 		3A7D0C2B2C64000100100011 /* PostureKind.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A7D0C2B2C64000100000016 /* PostureKind.swift */; };
 		3A7D0C2B2C64000100100012 /* PostureDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A7D0C2B2C64000100000017 /* PostureDetector.swift */; };
 		3A7D0C2B2C64000100100013 /* PosturePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A7D0C2B2C64000100000018 /* PosturePipeline.swift */; };
+		3A7D0C2B2C64000100100014 /* PostureEpisodeDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A7D0C2B2C64000100000019 /* PostureEpisodeDetector.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -37,6 +38,7 @@
 		3A7D0C2B2C64000100000016 /* PostureKind.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureKind.swift; sourceTree = "<group>"; };
 		3A7D0C2B2C64000100000017 /* PostureDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureDetector.swift; sourceTree = "<group>"; };
 		3A7D0C2B2C64000100000018 /* PosturePipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PosturePipeline.swift; sourceTree = "<group>"; };
+		3A7D0C2B2C64000100000019 /* PostureEpisodeDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PostureEpisodeDetector.swift; sourceTree = "<group>"; };
 		3A7D0C2B2C64000100000020 /* AirPods Posture Lab.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "AirPods Posture Lab.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -79,6 +81,7 @@
 				3A7D0C2B2C64000100000012 /* MotionCalibration.swift */,
 				3A7D0C2B2C64000100000015 /* PostureAxis.swift */,
 				3A7D0C2B2C64000100000017 /* PostureDetector.swift */,
+				3A7D0C2B2C64000100000019 /* PostureEpisodeDetector.swift */,
 				3A7D0C2B2C64000100000013 /* PostureGestureRecognizer.swift */,
 				3A7D0C2B2C64000100000016 /* PostureKind.swift */,
 				3A7D0C2B2C64000100000018 /* PosturePipeline.swift */,
@@ -181,6 +184,7 @@
 				3A7D0C2B2C64000100100007 /* MotionCalibration.swift in Sources */,
 				3A7D0C2B2C64000100100010 /* PostureAxis.swift in Sources */,
 				3A7D0C2B2C64000100100012 /* PostureDetector.swift in Sources */,
+				3A7D0C2B2C64000100100014 /* PostureEpisodeDetector.swift in Sources */,
 				3A7D0C2B2C64000100100008 /* PostureGestureRecognizer.swift in Sources */,
 				3A7D0C2B2C64000100100011 /* PostureKind.swift in Sources */,
 				3A7D0C2B2C64000100100013 /* PosturePipeline.swift in Sources */,

@@ -228,17 +228,20 @@ public struct AirPodsPosturePipelineConfiguration: Equatable, Sendable {
     public var requiredCalibrationSamples: Int
     public var signalGuard: MotionSignalGuardConfiguration
     public var postureDetector: PostureDetectorConfiguration
+    public var postureEpisodeDetector: PostureEpisodeDetectorConfiguration
     public var gestureRecognizer: RecognizerConfiguration
 
     public init(
         requiredCalibrationSamples: Int = 32,
         signalGuard: MotionSignalGuardConfiguration = MotionSignalGuardConfiguration(),
         postureDetector: PostureDetectorConfiguration = PostureDetectorConfiguration(),
+        postureEpisodeDetector: PostureEpisodeDetectorConfiguration = PostureEpisodeDetectorConfiguration(),
         gestureRecognizer: RecognizerConfiguration = RecognizerConfiguration()
     ) {
         self.requiredCalibrationSamples = max(1, requiredCalibrationSamples)
         self.signalGuard = signalGuard
         self.postureDetector = postureDetector
+        self.postureEpisodeDetector = postureEpisodeDetector
         self.gestureRecognizer = gestureRecognizer
     }
 }
@@ -250,6 +253,7 @@ public enum AirPodsPosturePipelineOutput: Equatable, Sendable {
         sample: PostureSample,
         posture: PostureSnapshot,
         gesture: GestureEvent?,
+        episodeEvents: [PostureEpisodeEvent],
         signalQuality: MotionSignalQuality
     )
     case reset(sample: PostureSample, signalQuality: MotionSignalQuality)
@@ -271,6 +275,7 @@ public final class AirPodsPosturePipeline: @unchecked Sendable {
     private var calibrationFrames: [HeadsetQuaternion] = []
     private var signalGuard: MotionSignalGuard
     private let postureDetector: PostureDetector
+    private let postureEpisodeDetector: PostureEpisodeDetector
     private let gestureRecognizer: PostureGestureRecognizer
 
     public var configuration: AirPodsPosturePipelineConfiguration
@@ -279,6 +284,7 @@ public final class AirPodsPosturePipeline: @unchecked Sendable {
         self.configuration = configuration
         signalGuard = MotionSignalGuard(configuration: configuration.signalGuard)
         postureDetector = PostureDetector(configuration: configuration.postureDetector)
+        postureEpisodeDetector = PostureEpisodeDetector(configuration: configuration.postureEpisodeDetector)
         gestureRecognizer = PostureGestureRecognizer(configuration: configuration.gestureRecognizer)
     }
 
@@ -300,6 +306,8 @@ public final class AirPodsPosturePipeline: @unchecked Sendable {
         signalGuard = MotionSignalGuard(configuration: configuration.signalGuard)
         postureDetector.configuration = configuration.postureDetector
         postureDetector.reset()
+        postureEpisodeDetector.configuration = configuration.postureEpisodeDetector
+        postureEpisodeDetector.reset()
         gestureRecognizer.configuration = configuration.gestureRecognizer
         gestureRecognizer.reset()
     }
@@ -307,6 +315,7 @@ public final class AirPodsPosturePipeline: @unchecked Sendable {
     public func resetRecognitionWindows() {
         signalGuard.reset()
         postureDetector.reset()
+        postureEpisodeDetector.reset()
         gestureRecognizer.reset()
     }
 
@@ -352,19 +361,23 @@ public final class AirPodsPosturePipeline: @unchecked Sendable {
         switch signalObservation {
         case .accepted(let sample, let quality):
             let posture = postureDetector.observe(sample)
+            let episodeEvents = postureEpisodeDetector.observe(posture)
             let gesture = recognizeGestures ? gestureRecognizer.observe(sample) : nil
             return .accepted(
                 sample: sample,
                 posture: posture,
                 gesture: gesture,
+                episodeEvents: episodeEvents,
                 signalQuality: quality
             )
         case .reset(let sample, let quality):
             postureDetector.reset()
+            postureEpisodeDetector.reset()
             gestureRecognizer.reset()
             return .reset(sample: sample, signalQuality: quality)
         case .dropped(let sample, let quality):
             postureDetector.reset()
+            postureEpisodeDetector.reset()
             gestureRecognizer.reset()
             return .dropped(sample: sample, signalQuality: quality)
         }
