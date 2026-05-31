@@ -141,7 +141,7 @@ It shows:
 - latest gesture, confidence, amplitude, and debug notes;
 - calibration controls for nod, shake, left tilt, and right tilt.
 
-It also plays matched audio feedback so movement has an immediate confirmation loop. Directional postures use hard equal-power stereo panning in the Lab: left turn / tilt cues play almost entirely in the left channel, right turn / tilt cues play almost entirely in the right channel, and cue strength follows posture offset, angular speed, and acceleration. The audio cue is part of the input surface, not decoration.
+It also plays matched audio feedback so movement has an immediate confirmation loop. Directional postures use hard equal-power stereo panning in the Lab: left turn / tilt cues play almost entirely in the left channel, right turn / tilt cues play almost entirely in the right channel, and cue strength follows posture offset, angular speed, and acceleration. These cues fire from motion onset before the sustained posture state commits, because the audio cue is part of the input surface, not decoration.
 
 Run the real AirPods debug app through Xcode:
 

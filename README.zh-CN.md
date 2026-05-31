@@ -141,7 +141,7 @@ gesture 不是从 posture label 推导出来的。posture 和 gesture 都消费�
 - 最近手势、置信度、幅度和 debug 信息；
 - nod、shake、left tilt、right tilt 的校准录制控件。
 
-它也会播放与动作匹配的音效，让身体动作有即时确认反馈。Lab 里的方向姿态使用更硬的 equal-power stereo panning：向左转头 / 侧倾几乎只播放左声道，向右转头 / 侧倾几乎只播放右声道，并且音效强度会跟随姿态偏移、角速度和加速度变化。这里的音效是输入表面的一部分，不是装饰。
+它也会播放与动作匹配的音效，让身体动作有即时确认反馈。Lab 里的方向姿态使用更硬的 equal-power stereo panning：向左转头 / 侧倾几乎只播放左声道，向右转头 / 侧倾几乎只播放右声道，并且音效强度会跟随姿态偏移、角速度和加速度变化。这些音效会在 motion onset 阶段提前触发，而不是等 sustained posture 状态确认后才触发，因为这里的音效是输入表面的一部分，不是装饰。
 
 真机 AirPods 调试请通过 Xcode 运行：
 

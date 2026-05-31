@@ -45,7 +45,9 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
     private var lastSoundedPosture: PostureKind = .neutral
     private var lastPostureSoundTimestamp: TimeInterval = -.infinity
     private let recordingDuration: TimeInterval = 1.35
-    private let postureSoundCooldown: TimeInterval = 0.9
+    private let postureSoundCooldown: TimeInterval = 0.12
+    private let postureSoundNeutralThreshold = 5.5
+    private let postureSoundMotionSpeedThreshold = 60.0
 
     override init() {
         motionDeliveryQueue.name = "dev.airpods-posture.lab.app.motion-delivery"
@@ -289,7 +291,7 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
         }
 
         if event == nil {
-            playPostureSoundIfNeeded(sample: sample, posture: posture)
+            playPostureSoundIfNeeded(sample: sample)
         }
 
         publishSample(sample, event: event, posture: posture)
@@ -309,29 +311,99 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
         lastPostureSoundTimestamp = -.infinity
     }
 
-    private func playPostureSoundIfNeeded(sample: PostureSample, posture: PostureSnapshot) {
-        if posture.kind == .neutral {
-            lastSoundedPosture = .neutral
+    private func playPostureSoundIfNeeded(sample: PostureSample) {
+        guard let candidate = postureSoundCandidate(for: sample) else {
+            if isNeutralEnoughForPostureSoundReset(sample) {
+                lastSoundedPosture = .neutral
+            }
             return
         }
 
-        guard posture.kind != lastSoundedPosture,
-              posture.timestamp - lastPostureSoundTimestamp >= postureSoundCooldown else {
+        guard candidate.kind != lastSoundedPosture,
+              sample.timestamp - lastPostureSoundTimestamp >= postureSoundCooldown else {
             return
         }
 
-        lastSoundedPosture = posture.kind
-        lastPostureSoundTimestamp = posture.timestamp
+        lastSoundedPosture = candidate.kind
+        lastPostureSoundTimestamp = sample.timestamp
         sounds.play(
             .posture(
                 PostureSoundCue(
-                    kind: posture.kind,
-                    offsetDegrees: posture.offsetDegrees,
+                    kind: candidate.kind,
+                    offsetDegrees: candidate.offsetDegrees,
                     angularSpeed: sample.angularSpeed,
                     accelerationMagnitude: sample.accelerationMagnitude
                 )
             )
         )
+    }
+
+    private func postureSoundCandidate(for sample: PostureSample) -> PostureSoundCandidate? {
+        let options = [
+            postureSoundOption(
+                positiveKind: .headDown,
+                negativeKind: .headUp,
+                signedValue: -sample.roll,
+                threshold: 14,
+                axis: .roll,
+                sample: sample,
+                allowsVelocityOnset: false
+            ),
+            postureSoundOption(
+                positiveKind: .turnedLeft,
+                negativeKind: .turnedRight,
+                signedValue: sample.yaw,
+                threshold: 9,
+                axis: .yaw,
+                sample: sample,
+                allowsVelocityOnset: true
+            ),
+            postureSoundOption(
+                positiveKind: .tiltedLeft,
+                negativeKind: .tiltedRight,
+                signedValue: -sample.pitch,
+                threshold: 8,
+                axis: .pitch,
+                sample: sample,
+                allowsVelocityOnset: true
+            )
+        ]
+
+        return options.compactMap { $0 }.max { $0.score < $1.score }
+    }
+
+    private func postureSoundOption(
+        positiveKind: PostureKind,
+        negativeKind: PostureKind,
+        signedValue: Double,
+        threshold: Double,
+        axis: PostureAxis,
+        sample: PostureSample,
+        allowsVelocityOnset: Bool
+    ) -> PostureSoundCandidate? {
+        let offset = abs(signedValue)
+        let speed = abs(sample.angularVelocity(on: axis))
+        let hasEnoughOffset = offset >= threshold
+        let hasFastOnset = allowsVelocityOnset
+            && offset >= postureSoundNeutralThreshold
+            && speed >= postureSoundMotionSpeedThreshold
+
+        guard hasEnoughOffset || hasFastOnset else {
+            return nil
+        }
+
+        let speedScore = min(speed / postureSoundMotionSpeedThreshold, 2) * 0.15
+        return PostureSoundCandidate(
+            kind: signedValue >= 0 ? positiveKind : negativeKind,
+            offsetDegrees: max(offset, threshold),
+            score: offset / threshold + speedScore
+        )
+    }
+
+    private func isNeutralEnoughForPostureSoundReset(_ sample: PostureSample) -> Bool {
+        let maxOffset = max(abs(sample.yaw), abs(sample.pitch), abs(sample.roll))
+        return maxOffset <= postureSoundNeutralThreshold
+            && sample.angularSpeed < postureSoundMotionSpeedThreshold
     }
 
     private func publishCalibrationProgress(_ progress: Double, timestamp: TimeInterval) {
@@ -556,6 +628,12 @@ private struct GestureRecordingSession {
     var kind: GestureKind
     var startedAt: TimeInterval?
     var samples: [PostureSample] = []
+}
+
+private struct PostureSoundCandidate {
+    var kind: PostureKind
+    var offsetDegrees: Double
+    var score: Double
 }
 
 private extension CMAuthorizationStatus {
