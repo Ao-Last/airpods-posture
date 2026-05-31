@@ -92,6 +92,10 @@ Core types:
 - `GestureEvent`: discrete gesture event stream.
 - `MotionSignalQuality`: stable / recovering / gap / spike state for Bluetooth resilience and diagnostics.
 
+Design notes:
+
+- [Directional impact events](docs/directional-impact-events.md): a proposed low-latency event stream for collision-like left / right / up / down feedback, separate from stable postures and symbolic gestures.
+
 ## Postures
 
 Current postures:

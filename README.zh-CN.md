@@ -92,6 +92,10 @@ case .reset(_, let signalQuality), .dropped(_, let signalQuality):
 - `GestureEvent`：离散手势事件流。
 - `MotionSignalQuality`：stable / recovering / gap / spike，用于蓝牙信号恢复和 UI 诊断。
 
+设计笔记：
+
+- [Directional impact events](docs/directional-impact-events.md)：一个低延迟事件流设计，用来表达类似小球撞击 left / right / up / down 边界的身体反馈。它和稳定 posture、语义 gesture 分离。
+
 ## Postures
 
 当前支持的姿态：
