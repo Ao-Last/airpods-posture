@@ -1,4 +1,4 @@
-import AirPodsPostureCore
+import AirPodsPosture
 import AVFoundation
 import Foundation
 

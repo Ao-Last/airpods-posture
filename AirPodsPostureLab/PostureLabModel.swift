@@ -29,16 +29,12 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
     private let motionDeliveryQueue = OperationQueue()
     private let processingQueue = DispatchQueue(label: "dev.airpods-posture.lab.app.processing", qos: .userInteractive)
     private let latestFrameLock = NSLock()
-    private let calibration = MotionCalibration()
-    private let recognizer = PostureGestureRecognizer()
-    private let postureDetector = PostureDetector()
+    private let pipeline = AirPodsPosturePipeline()
     private let sounds = SoundFeedback()
-    private var motionSignalGuard = MotionSignalGuard()
-    private var latestFrame: MotionFrame?
+    private var latestFrame: HeadMotionFrame?
     private var processedFrameTimestamp: TimeInterval = -.infinity
     private var processingTimer: DispatchSourceTimer?
     private var recordingSession: GestureRecordingSession?
-    private var calibrationFrames: [HeadsetQuaternion] = []
     private var eventToken = UUID()
     private var lastUIPublishTimestamp = 0.0
     private var sampleRateWindowStart = 0.0
@@ -152,7 +148,7 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
             }
 
             self.recordingSession = GestureRecordingSession(kind: gesture)
-            self.recognizer.reset()
+            self.pipeline.resetGestureRecognizer()
         }
     }
 
@@ -187,7 +183,7 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
     }
 
     private func storeLatestFrame(from motion: CMDeviceMotion) {
-        let frame = MotionFrame(
+        let frame = HeadMotionFrame(
             timestamp: motion.timestamp,
             quaternion: HeadsetQuaternion(
                 w: motion.attitude.quaternion.w,
@@ -251,75 +247,49 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
         handle(frame)
     }
 
-    private func handle(_ frame: MotionFrame) {
-        let quaternion = frame.quaternion
+    private func handle(_ frame: HeadMotionFrame) {
+        let output = pipeline.observe(frame, recognizeGestures: recordingSession == nil)
 
-        if !calibration.isCalibrated {
-            calibrationFrames.append(quaternion)
-            let progress = min(Double(calibrationFrames.count) / 32, 1)
-            publishCalibrationProgress(progress, timestamp: frame.timestamp)
+        switch output {
+        case .calibrating(let progress, let timestamp):
+            publishCalibrationProgress(progress, timestamp: timestamp)
 
-            guard calibrationFrames.count >= 32,
-                  let baseline = HeadsetQuaternion.average(calibrationFrames) else {
-                return
-            }
-
-            calibration.calibrate(with: baseline)
-            calibrationFrames.removeAll(keepingCapacity: true)
+        case .calibrated:
             DispatchQueue.main.async {
                 self.isCalibrated = true
                 self.calibrationProgress = 1
                 self.updateStatus("Ready. Try nod, shake, tilt left, or tilt right.", color: .green)
                 self.sounds.play(.calibrated)
             }
-            return
-        }
 
-        guard let rawSample = calibration.sample(
-            from: quaternion,
-            timestamp: frame.timestamp,
-            rotationRateDegreesPerSecond: frame.rotationRateDegreesPerSecond,
-            userAcceleration: frame.userAcceleration
-        ) else {
-            return
-        }
-
-        let signalObservation = motionSignalGuard.observe(rawSample)
-        publishSignalQuality(signalObservation.quality, timestamp: rawSample.timestamp)
-
-        switch signalObservation {
-        case .accepted(let sample, _):
-            processAcceptedSample(sample)
+        case .accepted(let sample, let posture, let event, let quality):
+            publishSignalQuality(quality, timestamp: sample.timestamp)
+            processAcceptedSample(sample, posture: posture, event: event)
         case .reset(let sample, let quality):
-            recognizer.reset()
-            postureDetector.reset()
+            publishSignalQuality(quality, timestamp: sample.timestamp)
             cancelRecordingForSignalIfNeeded(quality.debugSummary)
             publishSample(sample, event: nil)
         case .dropped(_, let quality):
-            recognizer.reset()
-            postureDetector.reset()
+            publishSignalQuality(quality, timestamp: frame.timestamp)
             cancelRecordingForSignalIfNeeded(quality.debugSummary)
         }
     }
 
-    private func processAcceptedSample(_ sample: PostureSample) {
-        let posture = postureDetector.observe(sample)
-
+    private func processAcceptedSample(
+        _ sample: PostureSample,
+        posture: PostureSnapshot,
+        event: GestureEvent?
+    ) {
         if consumeRecordingSample(sample) {
             publishSample(sample, event: nil, posture: posture)
             return
         }
 
-        let event = recognizer.observe(sample)
         publishSample(sample, event: event, posture: posture)
     }
 
     private func resetPipeline() {
-        calibration.reset()
-        recognizer.reset()
-        postureDetector.reset()
-        motionSignalGuard.reset()
-        calibrationFrames.removeAll(keepingCapacity: true)
+        pipeline.reset()
         lastUIPublishTimestamp = 0
         sampleRateWindowStart = 0
         sampleRateCount = 0
@@ -502,54 +472,24 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
             return
         }
 
-        let metrics = AxisMetrics(samples: session.samples)
-        var configuration = recognizer.configuration
-        var learnedText = ""
-
-        switch session.kind {
-        case .nod:
-            let axis = metrics.dominantRangeAxis
-            let range = metrics.range(on: axis)
-            configuration.nodAxis = axis
-            configuration.nodMinimumRange = tunedDynamicThreshold(from: range)
-            learnedText = "nod -> \(axis.label) range \(format(range)) deg"
-        case .shake:
-            let axis = metrics.dominantRangeAxis
-            let range = metrics.range(on: axis)
-            configuration.shakeAxis = axis
-            configuration.shakeMinimumRange = tunedDynamicThreshold(from: range)
-            learnedText = "shake -> \(axis.label) range \(format(range)) deg"
-        case .tiltLeft, .tiltRight:
-            let axis = metrics.dominantOffsetAxis
-            let mean = metrics.meanTailOffset(on: axis)
-            let sign = mean < 0 ? -1.0 : 1.0
-            let offset = abs(mean)
-
-            configuration.tiltAxis = axis
-            configuration.tiltLeftSign = session.kind == .tiltLeft ? sign : -sign
-            configuration.tiltMinimumOffset = max(7, min(24, offset * 0.55))
-            configuration.tiltNeutralOffset = max(4, configuration.tiltMinimumOffset * 0.42)
-            learnedText = "\(session.kind.label) -> \(axis.label) offset \(format(mean)) deg"
+        guard let learningResult = pipeline.learnGesture(kind: session.kind, samples: session.samples) else {
+            DispatchQueue.main.async {
+                self.recordingGesture = nil
+                self.recordingProgress = 0
+                self.updateStatus("Recording could not be learned. Try again.", color: .orange)
+                self.sounds.play(.error)
+            }
+            return
         }
-
-        recognizer.configuration = configuration
-        if session.kind == .nod || session.kind == .shake {
-            recognizer.learnTemplate(for: session.kind, samples: session.samples)
-        }
-        recognizer.reset()
 
         DispatchQueue.main.async {
             self.recordingGesture = nil
             self.recordingProgress = 0
-            self.calibrationProfileSummary = self.profileSummary(for: configuration)
-            self.lastDebugSummary = learnedText
+            self.calibrationProfileSummary = self.profileSummary(for: learningResult.configuration)
+            self.lastDebugSummary = learningResult.summary
             self.updateStatus("Learned \(session.kind.label).", color: .green)
             self.sounds.play(.calibrated)
         }
-    }
-
-    private func tunedDynamicThreshold(from range: Double) -> Double {
-        max(6, min(24, range * 0.45))
     }
 
     private func profileSummary(for configuration: RecognizerConfiguration) -> String {
@@ -578,195 +518,10 @@ final class PostureLabModel: NSObject, ObservableObject, CMHeadphoneMotionManage
     }
 }
 
-private struct MotionFrame: Sendable {
-    var timestamp: TimeInterval
-    var quaternion: HeadsetQuaternion
-    var rotationRateDegreesPerSecond: MotionVector
-    var userAcceleration: MotionVector
-}
-
 private struct GestureRecordingSession {
     var kind: GestureKind
     var startedAt: TimeInterval?
     var samples: [PostureSample] = []
-}
-
-private enum MotionSignalObservation {
-    case accepted(PostureSample, MotionSignalQuality)
-    case reset(PostureSample, MotionSignalQuality)
-    case dropped(PostureSample, MotionSignalQuality)
-
-    var quality: MotionSignalQuality {
-        switch self {
-        case .accepted(_, let quality),
-             .reset(_, let quality),
-             .dropped(_, let quality):
-            quality
-        }
-    }
-}
-
-private struct MotionSignalQuality {
-    var label: String
-    var debugSummary: String
-    var statusText: String
-    var shouldSurface: Bool
-
-    static let stable = MotionSignalQuality(
-        label: "signal: stable",
-        debugSummary: "signal stable",
-        statusText: "Ready. Try nod, shake, tilt left, or tilt right.",
-        shouldSurface: false
-    )
-
-    static let recovering = MotionSignalQuality(
-        label: "signal: recovering",
-        debugSummary: "recovering after signal gap",
-        statusText: "Recovering after signal gap.",
-        shouldSurface: false
-    )
-
-    static func gap(_ duration: TimeInterval) -> MotionSignalQuality {
-        MotionSignalQuality(
-            label: "signal: gap \(format(duration * 1_000)) ms",
-            debugSummary: "signal gap \(format(duration * 1_000)) ms; gesture window reset",
-            statusText: "Signal gap detected. Gesture window reset.",
-            shouldSurface: true
-        )
-    }
-
-    static func spike(_ degrees: Double) -> MotionSignalQuality {
-        MotionSignalQuality(
-            label: "signal: spike dropped",
-            debugSummary: "dropped motion spike \(format(degrees)) deg",
-            statusText: "Motion spike dropped.",
-            shouldSurface: true
-        )
-    }
-}
-
-private struct MotionSignalGuard {
-    private var previousRawSample: PostureSample?
-    private var previousFilteredSample: PostureSample?
-    private var recoveringUntil: TimeInterval = -.infinity
-
-    private let gapThreshold: TimeInterval = 0.18
-    private let recoveryDuration: TimeInterval = 0.35
-    private let minimumJumpLimit = 38.0
-    private let maximumJumpLimit = 95.0
-    private let jumpVelocityLimit = 720.0
-    private let filterTimeConstant: TimeInterval = 0.035
-
-    mutating func reset() {
-        previousRawSample = nil
-        previousFilteredSample = nil
-        recoveringUntil = -.infinity
-    }
-
-    mutating func observe(_ sample: PostureSample) -> MotionSignalObservation {
-        guard let previousRawSample else {
-            self.previousRawSample = sample
-            previousFilteredSample = sample
-            return .accepted(sample, .stable)
-        }
-
-        let deltaTime = sample.timestamp - previousRawSample.timestamp
-        guard deltaTime > 0 else {
-            return .dropped(sample, .spike(0))
-        }
-
-        if deltaTime >= gapThreshold {
-            self.previousRawSample = sample
-            previousFilteredSample = sample
-            recoveringUntil = sample.timestamp + recoveryDuration
-            return .reset(sample, .gap(deltaTime))
-        }
-
-        let jumpDegrees = maximumAxisDelta(from: previousRawSample, to: sample)
-        let jumpLimit = min(
-            maximumJumpLimit,
-            max(minimumJumpLimit, jumpVelocityLimit * deltaTime)
-        )
-        if jumpDegrees > jumpLimit {
-            recoveringUntil = sample.timestamp + recoveryDuration
-            return .dropped(sample, .spike(jumpDegrees))
-        }
-
-        self.previousRawSample = sample
-
-        let filteredSample: PostureSample
-        if let previousFilteredSample {
-            let alpha = clamp(deltaTime / (deltaTime + filterTimeConstant), lower: 0.25, upper: 0.72)
-            filteredSample = lowPass(previous: previousFilteredSample, next: sample, alpha: alpha)
-        } else {
-            filteredSample = sample
-        }
-        previousFilteredSample = filteredSample
-
-        let quality: MotionSignalQuality = sample.timestamp < recoveringUntil ? .recovering : .stable
-        return .accepted(filteredSample, quality)
-    }
-
-    private func maximumAxisDelta(from previous: PostureSample, to next: PostureSample) -> Double {
-        max(
-            abs(next.yaw - previous.yaw),
-            abs(next.pitch - previous.pitch),
-            abs(next.roll - previous.roll)
-        )
-    }
-
-    private func lowPass(previous: PostureSample, next: PostureSample, alpha: Double) -> PostureSample {
-        PostureSample(
-            timestamp: next.timestamp,
-            yaw: previous.yaw + (next.yaw - previous.yaw) * alpha,
-            pitch: previous.pitch + (next.pitch - previous.pitch) * alpha,
-            roll: previous.roll + (next.roll - previous.roll) * alpha,
-            rotationRateDegreesPerSecond: previous.rotationRateDegreesPerSecond.interpolated(
-                toward: next.rotationRateDegreesPerSecond,
-                alpha: alpha
-            ),
-            userAcceleration: previous.userAcceleration.interpolated(
-                toward: next.userAcceleration,
-                alpha: alpha
-            )
-        )
-    }
-}
-
-private struct AxisMetrics {
-    var samples: [PostureSample]
-
-    var dominantRangeAxis: PostureAxis {
-        PostureAxis.allCases.max { range(on: $0) < range(on: $1) } ?? .yaw
-    }
-
-    var dominantOffsetAxis: PostureAxis {
-        PostureAxis.allCases.max { abs(meanTailOffset(on: $0)) < abs(meanTailOffset(on: $1)) } ?? .yaw
-    }
-
-    func range(on axis: PostureAxis) -> Double {
-        let values = samples.map { $0.value(on: axis) }
-        guard let min = values.min(), let max = values.max() else {
-            return 0
-        }
-
-        return max - min
-    }
-
-    func meanTailOffset(on axis: PostureAxis) -> Double {
-        let tailCount = max(1, samples.count / 2)
-        let tail = samples.suffix(tailCount)
-        let total = tail.reduce(0) { $0 + $1.value(on: axis) }
-        return total / Double(tail.count)
-    }
-}
-
-private func format(_ value: Double) -> String {
-    String(format: "%.1f", value)
-}
-
-private func clamp(_ value: Double, lower: Double, upper: Double) -> Double {
-    min(max(value, lower), upper)
 }
 
 private extension CMAuthorizationStatus {

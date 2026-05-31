@@ -3,14 +3,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "AirPodsPostureLab",
+    name: "AirPodsPosture",
     platforms: [
         .macOS(.v14)
     ],
     products: [
         .library(
-            name: "AirPodsPostureCore",
-            targets: ["AirPodsPostureCore"]
+            name: "AirPodsPosture",
+            targets: ["AirPodsPosture"]
         ),
         .executable(
             name: "airpods-posture-lab",
@@ -19,15 +19,15 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "AirPodsPostureCore"
+            name: "AirPodsPosture"
         ),
         .executableTarget(
             name: "AirPodsPostureLab",
-            dependencies: ["AirPodsPostureCore"]
+            dependencies: ["AirPodsPosture"]
         ),
         .testTarget(
-            name: "AirPodsPostureCoreTests",
-            dependencies: ["AirPodsPostureCore"]
+            name: "AirPodsPostureTests",
+            dependencies: ["AirPodsPosture"]
         )
     ]
 )

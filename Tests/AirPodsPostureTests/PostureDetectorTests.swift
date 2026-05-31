@@ -1,5 +1,5 @@
 import XCTest
-@testable import AirPodsPostureCore
+@testable import AirPodsPosture
 
 final class PostureDetectorTests: XCTestCase {
     func testDetectsSustainedHeadDown() {
@@ -66,4 +66,3 @@ final class PostureDetectorTests: XCTestCase {
         }
     }
 }
-

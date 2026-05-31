@@ -1,14 +1,33 @@
-# AirPods Posture Lab
+# AirPods Posture
 
-AirPods Posture Lab is a focused prototype for one question:
+AirPods Posture is a focused package for one question:
 
 > Can AirPods headphone motion become a reliable, pleasant body-input layer?
 
-This repo intentionally does not start with downstream agent integrations. The first milestone is the posture loop itself:
+This repo intentionally does not contain downstream agent integrations or productivity apps. It owns two surfaces:
+
+1. `AirPodsPosture`: a Swift package/library that turns head motion into posture snapshots and gesture events.
+2. `AirPods Posture Lab`: a standard macOS SwiftUI app for debugging, calibration, and real AirPods UX testing.
+
+The library pipeline is:
 
 ```text
 AirPods motion -> neutral calibration -> signal guard -> cleaned motion stream -> posture stream + gesture events -> feedback
 ```
+
+Downstream apps should consume the posture/gesture stream from this package. New app ideas, such as low-head reminders, agent yes/no confirmation, or voice-input control, should live in separate repos.
+
+## Library API
+
+Add the package and depend on the `AirPodsPosture` product. The module exposes the reusable recognition pieces without depending on CoreMotion directly:
+
+- `HeadMotionFrame`: timestamp, headset quaternion, rotation rate, and user acceleration.
+- `AirPodsPosturePipeline`: neutral calibration, signal guarding, posture detection, and gesture recognition.
+- `PostureSnapshot`: sustained posture stream.
+- `GestureEvent`: discrete gesture event stream.
+- `MotionSignalQuality`: gap/spike/recovery state for Bluetooth resilience and UI diagnostics.
+
+The macOS debug app converts `CMDeviceMotion` into `HeadMotionFrame`, then feeds the same `AirPodsPosturePipeline` a downstream app would use.
 
 ## Current Postures
 
@@ -44,6 +63,15 @@ Gesture recognition now uses a more standard motion-recognition shape:
 3. Classify nod / shake with DTW-style template matching plus physical evidence: amplitude, dominant axis, reversal count, return-to-neutral, angular speed, and acceleration.
 4. Let user gesture recordings teach personal templates and thresholds, because AirPods fit and head motion style vary between people.
 
+## Debug UI
+
+`AirPods Posture Lab` is the first-party debugging UI. It is intentionally not the product layer.
+
+- Shows live yaw / pitch / roll, sample rate, signal quality, posture, gesture, confidence, and recognizer notes.
+- Plays matched audio feedback so physical movement has an immediate confirmation loop.
+- Records calibration traces for nod, shake, left tilt, and right tilt.
+- Dogfoods the package API instead of keeping recognition logic inside the UI.
+
 ## UX Principle
 
 The audio cue is part of the input surface, not decoration.
@@ -58,7 +86,7 @@ That makes the loop feel physical: move head, hear matched confirmation, trust t
 
 ## Run
 
-For real AirPods motion, use the standard Xcode macOS app target:
+For real AirPods motion, use the standard Xcode macOS debug app target:
 
 1. Open `AirPodsPostureLab.xcodeproj`.
 2. Select the `AirPodsPostureLab` scheme.
@@ -91,11 +119,11 @@ swift run airpods-posture-lab --simulate tilt-right
 swift test
 ```
 
-The tests cover sustained posture detection, nod, shake, whole-gesture segmentation, held left tilt, small-motion rejection, quaternion baseline conversion, and motion vector axis mapping.
+The tests cover the public pipeline, sustained posture detection, nod, shake, whole-gesture segmentation, held left tilt, small-motion rejection, quaternion baseline conversion, and motion vector axis mapping.
 
 ## Implementation Notes
 
-- `AirPodsPostureCore` contains posture detection and gesture recognition, and can be tuned without a live device.
+- `Sources/AirPodsPosture` contains the reusable package API and can be tuned without a live device.
 - `AirPodsPostureLab.xcodeproj` contains the standard macOS SwiftUI app that uses `CMHeadphoneMotionManager`.
 - The SwiftPM executable is a simulation harness only.
 - The signal guard drops obvious timestamp gaps and motion spikes before data reaches posture or gesture recognition. Bluetooth can still be imperfect, but broken segments should not become fake postures or gestures.

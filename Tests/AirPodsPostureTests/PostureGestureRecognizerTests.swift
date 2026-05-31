@@ -1,5 +1,5 @@
 import XCTest
-@testable import AirPodsPostureCore
+@testable import AirPodsPosture
 
 final class PostureGestureRecognizerTests: XCTestCase {
     func testDetectsNodFromRollStroke() {
