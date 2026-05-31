@@ -18,7 +18,7 @@ public struct PostureDetectorConfiguration: Equatable, Sendable {
         verticalAxis: PostureAxis = .roll,
         headDownSign: Double = -1,
         turnAxis: PostureAxis = .yaw,
-        turnedLeftSign: Double = -1,
+        turnedLeftSign: Double = 1,
         tiltAxis: PostureAxis = .pitch,
         tiltedLeftSign: Double = -1,
         verticalThreshold: Double = 15,

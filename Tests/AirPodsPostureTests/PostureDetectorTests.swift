@@ -40,7 +40,18 @@ final class PostureDetectorTests: XCTestCase {
         XCTAssertEqual(snapshots.last?.kind, .tiltedLeft)
     }
 
-    func testDetectsSustainedTurn() {
+    func testDetectsSustainedRightTurnFromNegativeYaw() {
+        let detector = PostureDetector()
+        let snapshots = samples(
+            start: 0,
+            step: 0.1,
+            values: Array(repeating: (yaw: -23.0, pitch: 0.0, roll: 0.0), count: 8)
+        ).map { detector.observe($0) }
+
+        XCTAssertEqual(snapshots.last?.kind, .turnedRight)
+    }
+
+    func testDetectsSustainedLeftTurnFromPositiveYaw() {
         let detector = PostureDetector()
         let snapshots = samples(
             start: 0,
@@ -48,7 +59,7 @@ final class PostureDetectorTests: XCTestCase {
             values: Array(repeating: (yaw: 23.0, pitch: 0.0, roll: 0.0), count: 8)
         ).map { detector.observe($0) }
 
-        XCTAssertEqual(snapshots.last?.kind, .turnedRight)
+        XCTAssertEqual(snapshots.last?.kind, .turnedLeft)
     }
 
     private func samples(

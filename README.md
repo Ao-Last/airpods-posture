@@ -41,7 +41,7 @@ The app now treats sustained posture as the primary product surface. Gestures ar
 
 Default axis assumptions are based on current real-device observations:
 
-- yaw: left / right turning.
+- yaw: left / right turning. Current default mapping treats positive yaw as left turn and negative yaw as right turn.
 - roll: up / down nodding, also the default vertical posture axis.
 - pitch: side tilt.
 
