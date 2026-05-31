@@ -237,8 +237,8 @@ private extension PostureSoundCue {
             lower: 0.2,
             upper: 1
         )
-        let duration = 0.075 + intensity * 0.055
-        let gain = 0.075 + intensity * 0.075
+        let duration = 0.12 + intensity * 0.09
+        let gain = 0.11 + intensity * 0.11
 
         switch kind {
         case .turnedLeft:
@@ -285,8 +285,8 @@ private extension PostureSoundCue {
         gain: Double,
         intensity: Double
     ) -> ToneSegment {
-        let finalPan = direction * clamp(0.40 + intensity * 0.58, lower: 0.40, upper: 0.98)
-        let startPan = finalPan * 0.35
+        let finalPan = direction < 0 ? -1.0 : 1.0
+        let startPan = finalPan * 0.96
         return ToneSegment(
             startFrequency: baseFrequency,
             endFrequency: baseFrequency + 80 + intensity * 90,
